@@ -1,0 +1,86 @@
+; deploy/systemd/xsink.service — юніт для запуску як Linux-сервіс.
+;
+; Установка:
+;   sudo cp deploy/systemd/xsink.service /etc/systemd/system/
+;   sudo cp bin/xsink /usr/local/bin/xsink
+;   sudo mkdir -p /etc/xsink
+;   sudo cp config.yaml mapping.json /etc/xsink/
+;   sudo cp keys/redis_ca.crt keys/redis_client.crt keys/redis_client.key /etc/xsink/keys/
+;   sudo touch /etc/xsink/proxies.txt   # заповнити SOCKS5-проксями
+;   sudo useradd --system --no-create-home --shell /usr/sbin/nologin xsink
+;   sudo chown -R xsink:xsink /etc/xsink
+;   sudo systemctl daemon-reload
+;   sudo systemctl enable --now xsink.service
+
+[Unit]
+Description=Xsink (Redis → Postgres pipeline)
+After=network-online.target
+Wants=network-online.target
+# Захист від «шторму» перезапусків: не більше StartLimitBurst стартів за
+# StartLimitIntervalSec, інакше unit → failed і перестає перезапускатися. Вікно
+# широке, щоб пережити повільний старт залежностей (Postgres/Redis ще
+# піднімаються) через Restart=on-failure + RestartSec=5s.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=xsink
+Group=xsink
+WorkingDirectory=/etc/xsink
+# Секрети поза config.yaml: файл з рядком XSINK_POSTGRES_DSN=... (chmod 600).
+# Префікс "-" — не падати, якщо файла немає.
+EnvironmentFile=-/etc/xsink/xsink.env
+ExecStart=/usr/local/bin/xsink --config /etc/xsink/config.yaml
+Restart=on-failure
+RestartSec=5s
+
+# Вікно на коректне завершення (drain незавершених batch) перед SIGKILL. Має
+# бути ширше за реальний drain, щоб systemd не обривав програму посеред
+# завершення. Нормальний drain — секунди (операції поважають скасування ctx);
+# 120s — стеля із запасом. Дані при обриві не втрачаються (лишаються в Redis).
+TimeoutStopSec=120s
+
+# Ліміт файлових дескрипторів: сервіс тримає пул до Postgres + з'єднання до Redis
+# через SOCKS5 + HTTP admin. Дефолтний soft-ліміт (часто 1024) може вичерпатись
+# під навантаженням → "too many open files". 65536 — з запасом.
+LimitNOFILE=65536
+
+# Watchdog: якщо процес не пингує sd_notify WATCHDOG=1 за 60s — systemd перезапустить.
+WatchdogSec=60s
+
+# Логи → journal.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xsink
+
+# Hardening.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @debug @cpu-emulation @obsolete @raw-io @reboot @swap
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Тимчасово дозволяємо запис у dir з логами якщо треба (по замовчуванню — тільки journal).
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target

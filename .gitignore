@@ -1,0 +1,40 @@
+# .gitignore — не пускати в git секрети та критичну інформацію.
+# Комітяться лише *.example-шаблони; реальні файли з даними — ігноруються.
+
+# --- Реальні конфіги (комітимо лише *.example) ---
+# config.yaml містить DSN/пароль, IP-адреси Redis, SNI — критична інформація.
+/config.yaml
+# mapping.json містить структуру таблиць (архітектуру БД).
+/mapping.json
+
+# --- TLS-ключі та сертифікати (mTLS до Redis) ---
+/keys/
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
+# --- Список SOCKS5-проксі (з логінами/паролями) ---
+proxies.txt
+*.proxies
+
+# --- Секрети для systemd (XSINK_POSTGRES_DSN=...) ---
+*.env
+xsink.env
+
+# --- Артефакти збірки та дані ---
+/bin/
+/data/
+
+# --- Бекапи та архіви ---
+*.tar.gz
+*.tgz
+*.bak
+
+# --- ОС / IDE ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,58 @@
+{
+  "$comment": "ШАБЛОН mapping.json — архітектура БД: які Redis-stream'и читати і в які таблиці/колонки писати. Скопіюй у mapping.json (він у .gitignore) і заміни під свої дані: cp mapping.json.example mapping.json. Повний опис полів, типів і on_conflict — у README.md. Поле source має збігатися з config.redis[].name; якщо Redis-джерело одне — source можна не вказувати. Ключі $comment ігноруються парсером.",
+
+  "streams": [
+    {
+      "source": "main",
+      "name": "queue:orders",
+      "consumer_group": "xsink",
+      "batch_size": 100,
+      "block_ms": 5000,
+      "table": "orders",
+      "id_column": "redis_stream_id",
+      "primary_key": ["order_id"],
+      "on_conflict": "do_nothing",
+      "fields": [
+        {"redis": "order_id",    "column": "order_id",    "type": "text",        "not_null": true},
+        {"redis": "user_id",     "column": "user_id",     "type": "bigint"},
+        {"redis": "total_cents", "column": "total_cents", "type": "integer"},
+        {"redis": "paid",        "column": "paid",        "type": "boolean"},
+        {"redis": "items",       "column": "items",       "type": "jsonb"},
+        {"redis": "created_at",  "column": "created_at",  "type": "timestamptz"}
+      ]
+    },
+    {
+      "source": "main",
+      "name": "queue:devices",
+      "consumer_group": "xsink",
+      "batch_size": 200,
+      "block_ms": 5000,
+      "table": "devices",
+      "id_column": "redis_stream_id",
+      "primary_key": ["device_id"],
+      "on_conflict": "update",
+      "fields": [
+        {"redis": "device_id", "column": "device_id", "type": "uuid", "not_null": true},
+        {"redis": "hostname",  "column": "hostname",  "type": "text"},
+        {"redis": "last_seen", "column": "last_seen", "type": "timestamptz"},
+        {"redis": "raw_probe", "column": "raw_probe", "type": "bytea", "encoding": "base64"}
+      ]
+    },
+    {
+      "source": "backup",
+      "name": "queue:audit",
+      "consumer_group": "xsink",
+      "batch_size": 500,
+      "block_ms": 5000,
+      "table": "audit_events",
+      "id_column": "redis_stream_id",
+      "primary_key": ["redis_stream_id"],
+      "on_conflict": "do_nothing",
+      "fields": [
+        {"redis": "actor",   "column": "actor",   "type": "text"},
+        {"redis": "action",  "column": "action",  "type": "text", "not_null": true},
+        {"redis": "payload", "column": "payload", "type": "jsonb"}
+      ]
+    }
+  ]
+}

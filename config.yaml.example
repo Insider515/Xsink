@@ -1,0 +1,97 @@
+# config.yaml.example — ШАБЛОН конфігу xsink.
+# Скопіюй у config.yaml і заповни під своє середовище:
+#   cp config.yaml.example config.yaml
+# УВАГА: config.yaml у .gitignore. Реальні паролі/IP/SNI сюди НЕ комітити.
+# Пароль Postgres краще передавати через env XSINK_POSTGRES_DSN (див. README).
+
+log:
+  level: INFO
+  # journal | stdout — вивід. journal під systemd; stdout для локального dev.
+  sink: journal
+
+proxy:
+  # Файл SOCKS5-проксі: по 1 на рядок, формат host:port:user:pass
+  # (login/pass опційні — тоді "host:port").
+  list_path: /etc/xsink/proxies.txt
+  # Стратегія обрання: random | round_robin | sticky (одна на процес).
+  strategy: sticky
+  # Таймаут dial через проксі.
+  dial_timeout: 10s
+
+# =========================================================================
+# REDIS SOURCES — список Redis-серверів. Кожен має унікальне ім'я `name`,
+# на яке посилаються stream'и у mapping.json (поле `source`).
+# Мінімум 1. Якщо джерело одне — `source` у mapping можна не задавати
+# (автоматично прив'яжеться).
+# =========================================================================
+redis:
+  - name: main
+    addr: 10.0.0.10:6379
+    tls:
+      ca_cert_path: keys/main_ca.crt
+      client_cert_path: keys/main_client.crt
+      client_key_path: keys/main_client.key
+      server_name: redis-main.internal
+    password: ""
+    db: 0
+    max_retries: 3
+    poll_rate_per_second: 500     # стеля XREADGROUP на процес для цього джерела
+    dial_timeout: 10s
+
+  - name: backup
+    addr: 10.0.0.11:6379
+    tls:
+      ca_cert_path: keys/backup_ca.crt
+      client_cert_path: keys/backup_client.crt
+      client_key_path: keys/backup_client.key
+      server_name: redis-backup.internal
+    password: ""
+    db: 0
+    max_retries: 3
+    poll_rate_per_second: 200
+    dial_timeout: 10s
+
+postgres:
+  # DSN через pgbouncer. У transaction pooling mode обов'язково
+  # default_query_exec_mode=simple_protocol.
+  # Пароль краще НЕ тримати тут: env XSINK_POSTGRES_DSN перекриває це значення.
+  dsn: postgres://xsink_user:CHANGE_ME@127.0.0.1:6432/xsink?sslmode=disable&default_query_exec_mode=simple_protocol
+  max_open_conns: 16
+  connect_timeout: 10s
+  # Автоматичне створення відсутніх таблиць/колонок згідно mapping.
+  auto_migrate: true
+
+pipeline:
+  # Скільки паралельних worker'ів на КОЖЕН stream.
+  workers: 4
+  insert_retries: 3
+  # База backoff між повторами INSERT; застосовується з експоненційним
+  # зростанням і повним jitter (не всі worker'и повторюють синхронно).
+  insert_retry_backoff: 500ms
+  dead_letter_table: dead_letters
+  # TTL записів dead_letters: фонове видалення старших. 0s = зберігати безстроково.
+  dead_letter_retention: 0s
+  # Зберігати у raw_fields лише SHA-256+розмір замість самих значень
+  # (для чутливих даних). false = повний payload.
+  redact_dead_letter_payload: false
+
+mapping:
+  path: mapping.json
+
+http:
+  # /healthz /readyz /metrics. "" — вимкнути.
+  addr: 127.0.0.1:9090
+
+reclaim:
+  # XAUTOCLAIM фонова горутина: підбирає stuck-повідомлення з PEL іншого
+  # consumer'а (краш worker'а, довгий stall).
+  enabled: true
+  interval: 60s
+  min_idle_time: 5m
+  batch_size: 100
+
+breaker:
+  # Circuit breaker: після N поспіль збоїв → Open на open_timeout.
+  # Захищає Postgres і кожне Redis-джерело окремо.
+  max_consecutive_failures: 5
+  open_timeout: 30s
