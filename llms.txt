@@ -1,0 +1,36 @@
+# Xsink
+
+> Universal Redis Streams → PostgreSQL pipeline with a configurable mapping: what to read and where to write is defined in mapping.json, with no code changes.
+
+Go 1.25 service, no CGO. It reads Redis streams through SOCKS5 proxies over mTLS (one or more Redis sources), converts entry fields according to mapping.json, and writes them to PostgreSQL with one multi-row INSERT per batch. At-least-once delivery: XACK+XDEL happen only after the row is stored in the target table or in dead_letters. Transient failures keep the batch in the Redis PEL for retry; only unrecoverable data (SQLSTATE classes 22/23, conversion errors) goes to dead_letters. Circuit breakers per Redis source and for Postgres, exponential backoff with jitter, XAUTOCLAIM reclaim of stuck messages, proxy failover, graceful shutdown. Runs as a systemd service (Type=notify, WatchdogSec, hardening) and exposes /healthz, /readyz, and Prometheus /metrics.
+
+## Documentation
+- [README (English)](https://github.com/Insider515/Xsink/blob/master/README.en.md): what it does, reliability guarantees, configuration files, mapping.json reference, auto_migrate, dead_letters, secrets, HTTP and metrics, build, local run, systemd deployment, CLI flags, security
+- [README (Ukrainian)](https://github.com/Insider515/Xsink/blob/master/README.md): same content in Ukrainian
+- [LICENSE](https://github.com/Insider515/Xsink/blob/master/LICENSE)
+
+## Configuration
+- [config.yaml.example](https://github.com/Insider515/Xsink/blob/master/config.yaml.example): infrastructure template: log, proxy, redis[] sources with mTLS, postgres DSN and auto_migrate, pipeline, mapping.path, http.addr, reclaim, breaker
+- [mapping.json.example](https://github.com/Insider515/Xsink/blob/master/mapping.json.example): streams[] template: source, name, consumer_group, batch_size, block_ms, table, id_column, primary_key, on_conflict, fields[] (redis, column, type, not_null, encoding)
+- Supported field types: text, uuid, integer, bigint, real, double, boolean, jsonb, timestamptz, bytea
+- The Postgres password can be supplied through the XSINK_POSTGRES_DSN environment variable, which overrides postgres.dsn
+
+## Source
+- [cmd/xsink/main.go](https://github.com/Insider515/Xsink/blob/master/cmd/xsink/main.go): entry point, CLI flags --config, --print-ddl, --version
+- [internal/config/config.go](https://github.com/Insider515/Xsink/blob/master/internal/config/config.go): config.yaml loading
+- [internal/mapping/mapping.go](https://github.com/Insider515/Xsink/blob/master/internal/mapping/mapping.go): mapping.json parsing and validation
+- [internal/pipeline/pipeline.go](https://github.com/Insider515/Xsink/blob/master/internal/pipeline/pipeline.go): XREADGROUP workers, batching, INSERT, XACK/XDEL, dead-letter routing
+- [internal/pipeline/convert.go](https://github.com/Insider515/Xsink/blob/master/internal/pipeline/convert.go): Redis field to SQL value conversion
+- [internal/storage/storage.go](https://github.com/Insider515/Xsink/blob/master/internal/storage/storage.go): PostgreSQL access, DDL generation, auto_migrate
+- [internal/redisclient/redisclient.go](https://github.com/Insider515/Xsink/blob/master/internal/redisclient/redisclient.go): Redis sources with mTLS over SOCKS5
+- [internal/proxylist/proxylist.go](https://github.com/Insider515/Xsink/blob/master/internal/proxylist/proxylist.go): proxy list, selection strategy, health marking
+- [internal/reclaim/reclaim.go](https://github.com/Insider515/Xsink/blob/master/internal/reclaim/reclaim.go): XAUTOCLAIM reclaim of stuck messages
+- [internal/breaker/breaker.go](https://github.com/Insider515/Xsink/blob/master/internal/breaker/breaker.go): circuit breaker
+- [internal/httpapi/httpapi.go](https://github.com/Insider515/Xsink/blob/master/internal/httpapi/httpapi.go): /healthz, /readyz, /metrics
+- [internal/metrics/metrics.go](https://github.com/Insider515/Xsink/blob/master/internal/metrics/metrics.go): Prometheus metrics (xsink_* series)
+- [internal/logging/logging.go](https://github.com/Insider515/Xsink/blob/master/internal/logging/logging.go): journal or stdout log sink
+
+## Build and deployment
+- [Makefile](https://github.com/Insider515/Xsink/blob/master/Makefile): build, build-linux, print-ddl, test, tidy, clean
+- [deploy/systemd/xsink.service](https://github.com/Insider515/Xsink/blob/master/deploy/systemd/xsink.service): systemd unit with Type=notify, WatchdogSec, restart limits, hardening
+- [.gitignore](https://github.com/Insider515/Xsink/blob/master/.gitignore): config.yaml, mapping.json, keys, proxies.txt, env files and binaries are never committed

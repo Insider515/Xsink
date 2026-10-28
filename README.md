@@ -1,5 +1,7 @@
 # Xsink
 
+Українська | [English](README.en.md)
+
 ![Xsink: Redis Streams → mapping configuration → PostgreSQL](docs/xsink.webp)
 
 Універсальний конвеєр **Redis Streams → Postgres** із конфігурованим mapping.
